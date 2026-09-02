@@ -11,8 +11,8 @@
     input[type="text"] { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; background: #222; color: #fff; border: 1px solid #444; }
     button { padding: 10px; margin-top: 10px; background: #ff9900; border: none; font-weight: bold; color: #000; cursor: pointer; }
     .btn-main { width: 100%; font-size: 16px; margin-bottom: 10px; }
-    .time-nav { display: flex; gap: 10px; margin-top: 10px; }
-    .time-nav button { flex: 1; background: #333; color: #fff; border: 1px solid #555; }
+    .time-nav { margin-top: 10px; }
+    .time-nav button { width: 48%; background: #333; color: #fff; border: 1px solid #555; }
     .status { margin-top: 10px; color: #aaa; font-size: 14px; }
     .itinerary { background: #1e1e1e; border: 1px solid #333; padding: 10px; margin-top: 15px; }
     .leg { border-bottom: 1px solid #333; padding: 8px 0; }
@@ -35,180 +35,195 @@
   <button class="btn-main" onclick="uusiHaku()">Etsi reitti</button>
 
   <div id="timeNav" class="time-nav" style="display: none;">
-    <button onclick="muutaAikaa(-30)">⬅ Lähde aiemmin</button>
-    <button onclick="muutaAikaa(30)">Lähde myöhemmin ➔</button>
+    <button onclick="muutaAikaa(-30)">⬅ Aiemmin</button>
+    <button onclick="muutaAikaa(30)">Myöhemmin ➔</button>
   </div>
 
   <div id="status" class="status"></div>
   <div id="results"></div>
 
   <script>
-    const API_KEY = "d3900a5cacf542eb97f35733a6ade244"; // Aseta oma Digitransit API-avaimesi tähän
+    var API_KEY = "d3900a5cacf542eb97f35733a6ade244"; // Aseta oma API-avain tähän
 
-    let nykyinenAika = new Date();
-    let muistissaFrom = null;
-    let muistissaTo = null;
-
-    async function geocode(paikka) {
-      const url = `https://api.digitransit.fi/geocoding/v1/search?text=${encodeURIComponent(paikka)}&size=1&boundary.rect.min_lat=61.2&boundary.rect.max_lat=61.7&boundary.rect.min_lon=23.3&boundary.rect.max_lon=24.2`;
-      const res = await fetch(url, { 
-        headers: { 'digitransit-subscription-key': API_KEY } 
-      });
-      const data = await res.json();
-
-      if (data.features && data.features.length > 0) {
-        const coords = data.features[0].geometry.coordinates;
-        return { 
-          lon: coords[0], 
-          lat: coords[1], 
-          name: data.features[0].properties.name 
-        };
-      }
-      return null;
-    }
+    var nykyinenAika = new Date();
+    var muistissaFrom = null;
+    var muistissaTo = null;
 
     function uusiHaku() {
-      nykyinenAika = new Date(); // Nollataan hakuhetki nykyhetkeen
+      nykyinenAika = new Date();
       muistissaFrom = null;
       muistissaTo = null;
-      haeReitti();
+      prosessiHaku();
     }
 
     function muutaAikaa(minuutit) {
       nykyinenAika = new Date(nykyinenAika.getTime() + minuutit * 60000);
-      haeReitti();
+      prosessiHaku();
     }
 
-    async function haeReitti() {
-      const statusDiv = document.getElementById('status');
-      const resultsDiv = document.getElementById('results');
-      const timeNav = document.getElementById('timeNav');
-      const fromText = document.getElementById('from').value;
-      const toText = document.getElementById('to').value;
+    // Perinteinen AJAX HTTP-pyyntö (yhteensopiva vanhojen selaimien kanssa)
+    function makeRequest(url, method, headers, body, callback) {
+      var xhr = new XMLHttpRequest();
+      xhr.open(method, url, true);
+      for (var key in headers) {
+        if (headers.hasOwnProperty(key)) {
+          xhr.setRequestHeader(key, headers[key]);
+        }
+      }
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            try {
+              var data = JSON.parse(xhr.responseText);
+              callback(null, data);
+            } catch (e) {
+              callback("JSON virhe: " + e.message);
+            }
+          } else {
+            callback("HTTP Virhe: " + xhr.status);
+          }
+        }
+      };
+      xhr.send(body);
+    }
 
-      statusDiv.innerText = "Ladataan...";
+    function geocode(paikka, callback) {
+      var url = "https://api.digitransit.fi/geocoding/v1/search?text=" + encodeURIComponent(paikka) + "&size=1&boundary.rect.min_lat=61.2&boundary.rect.max_lat=61.7&boundary.rect.min_lon=23.3&boundary.rect.max_lon=24.2";
+      var headers = { 'digitransit-subscription-key': API_KEY };
+      
+      makeRequest(url, "GET", headers, null, function(err, data) {
+        if (err || !data || !data.features || data.features.length === 0) {
+          callback(null);
+        } else {
+          var coords = data.features[0].geometry.coordinates;
+          callback({
+            lon: coords[0],
+            lat: coords[1],
+            name: data.features[0].properties.name
+          });
+        }
+      });
+    }
+
+    function prosessiHaku() {
+      var statusDiv = document.getElementById('status');
+      var resultsDiv = document.getElementById('results');
+      var timeNav = document.getElementById('timeNav');
+      var fromText = document.getElementById('from').value;
+      var toText = document.getElementById('to').value;
+
+      statusDiv.innerHTML = "Odotetaan koordinaatteja...";
       resultsDiv.innerHTML = "";
 
-      try {
-        // Haetaan koordinaatit vain jos niitä ei ole vielä muistissa
-        if (!muistissaFrom || !muistissaTo) {
-          statusDiv.innerText = "Etsitään paikkojen koordinaatteja...";
-          muistissaFrom = await geocode(fromText);
-          muistissaTo = await geocode(toText);
-        }
+      if (!muistissaFrom || !muistissaTo) {
+        geocode(fromText, function(resFrom) {
+          if (!resFrom) {
+            statusDiv.innerHTML = "Lähtöpaikkaa ei löytynyt.";
+            return;
+          }
+          muistissaFrom = resFrom;
 
-        if (!muistissaFrom || !muistissaTo) {
-          statusDiv.innerText = "Paikkaa ei löytynyt! Tarkista hakusanat.";
-          timeNav.style.display = "none";
+          geocode(toText, function(resTo) {
+            if (!resTo) {
+              statusDiv.innerHTML = "Määränpäätä ei löytynyt.";
+              return;
+            }
+            muistissaTo = resTo;
+            haeReittiAPI();
+          });
+        });
+      } else {
+        haeReittiAPI();
+      }
+    }
+
+    function haeReittiAPI() {
+      var statusDiv = document.getElementById('status');
+      var resultsDiv = document.getElementById('results');
+      var timeNav = document.getElementById('timeNav');
+
+      // Pvm ja aika muotoilu ilman ISO/toTimeString-metodeita
+      var YYYY = nykyinenAika.getFullYear();
+      var MM = ('0' + (nykyinenAika.getMonth() + 1)).slice(-2);
+      var DD = ('0' + nykyinenAika.getDate()).slice(-2);
+      var hh = ('0' + nykyinenAika.getHours()).slice(-2);
+      var mm = ('0' + nykyinenAika.getMinutes()).slice(-2);
+      var ss = ('0' + nykyinenAika.getSeconds()).slice(-2);
+
+      var isoPvm = YYYY + "-" + MM + "-" + DD;
+      var aikaKlo = hh + ":" + mm + ":" + ss;
+
+      statusDiv.innerHTML = "Haetaan reittejä (" + hh + ":" + mm + ")...";
+
+      var query = '{ plan(from: {lat: ' + muistissaFrom.lat + ', lon: ' + muistissaFrom.lon + '} to: {lat: ' + muistissaTo.lat + ', lon: ' + muistissaTo.lon + '} date: "' + isoPvm + '" time: "' + aikaKlo + '" numItineraries: 3) { itineraries { startTime endTime legs { mode startTime endTime from { name lat lon } to { name lat lon } route { shortName } } } } }';
+
+      var headers = {
+        'Content-Type': 'application/json',
+        'digitransit-subscription-key': API_KEY
+      };
+
+      makeRequest('https://api.digitransit.fi/routing/v2/waltti/gtfs/v1', 'POST', headers, JSON.stringify({ query: query }), function(err, resData) {
+        if (err) {
+          statusDiv.innerHTML = "Virhe: " + err;
           return;
         }
 
-        // Muotoillaan aika Digitransit GraphQLin vaatimaan muotoon YYYY-MM-DD ja HH:MM:SS
-        const isoPvm = nykyinenAika.toISOString().split('T')[0];
-        const aikaKlo = nykyinenAika.toTimeString().split(' ')[0];
-
-        statusDiv.innerText = `Lasketaan reittiä (${aikaKlo}): ${muistissaFrom.name} -> ${muistissaTo.name}...`;
-
-        const query = `{
-          plan(
-            from: {lat: ${muistissaFrom.lat}, lon: ${muistissaFrom.lon}}
-            to: {lat: ${muistissaTo.lat}, lon: ${muistissaTo.lon}}
-            date: "${isoPvm}"
-            time: "${aikaKlo}"
-            numItineraries: 3
-          ) {
-            itineraries {
-              startTime
-              endTime
-              legs {
-                mode
-                startTime
-                endTime
-                from { 
-                  name 
-                  lat
-                  lon
-                }
-                to { 
-                  name 
-                  lat
-                  lon
-                }
-                route { shortName }
-              }
-            }
-          }
-        }`;
-
-        const response = await fetch('https://api.digitransit.fi/routing/v2/waltti/gtfs/v1', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'digitransit-subscription-key': API_KEY
-          },
-          body: JSON.stringify({ query })
-        });
-
-        const resData = await response.json();
-
         if (resData.errors && resData.errors.length > 0) {
-          console.error("GraphQL Errors:", resData.errors);
-          statusDiv.innerText = "API-virhe: " + resData.errors[0].message;
+          statusDiv.innerHTML = "API-virhe: " + resData.errors[0].message;
           return;
         }
 
         if (!resData.data || !resData.data.plan) {
-          statusDiv.innerText = "Ei reittitietoja saatavilla.";
+          statusDiv.innerHTML = "Ei reittitietoja saatavilla.";
           return;
         }
 
-        const itineraries = resData.data.plan.itineraries;
-        statusDiv.innerText = "";
-        
+        var itineraries = resData.data.plan.itineraries;
+        statusDiv.innerHTML = "";
+
         if (!itineraries || itineraries.length === 0) {
           resultsDiv.innerHTML = "<p>Ei reittejä valitulle ajankohdalle.</p>";
-          timeNav.style.display = "flex";
+          timeNav.style.display = "block";
           return;
         }
 
-        // Päivitetään hakuajan viite ensimmäisen löydetyn reitin lähtöaikaan
-        nykyinenAika = new Date(itineraries[0].startTime);
+        var htmlBuffer = "";
 
-        itineraries.forEach((it, index) => {
-          const lahto = new Date(it.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-          const perilla = new Date(it.endTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-          
-          let html = `<div class="itinerary"><h3>Reitti ${index + 1} (${lahto} - ${perilla})</h3>`;
+        for (var i = 0; i < itineraries.length; i++) {
+          var it = itineraries[i];
+          var dStart = new Date(it.startTime);
+          var dEnd = new Date(it.endTime);
 
-          it.legs.forEach(leg => {
-            const legStart = new Date(leg.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            
-            // Luodaan Google Maps -linkit koordinaateille
-            const fromMapUrl = `https://www.google.com/maps/search/?api=1&query=${leg.from.lat},${leg.from.lon}`;
-            const toMapUrl = `https://www.google.com/maps/search/?api=1&query=${leg.to.lat},${leg.to.lon}`;
+          var lahto = ('0' + dStart.getHours()).slice(-2) + ":" + ('0' + dStart.getMinutes()).slice(-2);
+          var perilla = ('0' + dEnd.getHours()).slice(-2) + ":" + ('0' + dEnd.getMinutes()).slice(-2);
 
-            const fromLink = `${leg.from.name} <a class="gmap-link" href="${fromMapUrl}" target="_blank">[Kartta]</a>`;
-            const toLink = `${leg.to.name} <a class="gmap-link" href="${toMapUrl}" target="_blank">[Kartta]</a>`;
+          htmlBuffer += '<div class="itinerary"><h3>Reitti ' + (i + 1) + ' (' + lahto + ' - ' + perilla + ')</h3>';
+
+          for (var j = 0; j < it.legs.length; j++) {
+            var leg = it.legs[j];
+            var dLegStart = new Date(leg.startTime);
+            var legStart = ('0' + dLegStart.getHours()).slice(-2) + ":" + ('0' + dLegStart.getMinutes()).slice(-2);
+
+            var fromMapUrl = "https://www.google.com/maps/search/?api=1&query=" + leg.from.lat + "," + leg.from.lon;
+            var toMapUrl = "https://www.google.com/maps/search/?api=1&query=" + leg.to.lat + "," + leg.to.lon;
+
+            var fromLink = leg.from.name + ' <a class="gmap-link" href="' + fromMapUrl + '" target="_blank">[Kartta]</a>';
+            var toLink = leg.to.name + ' <a class="gmap-link" href="' + toMapUrl + '" target="_blank">[Kartta]</a>';
 
             if (leg.mode === 'WALK') {
-              html += `<div class="leg walk">🚶 ${legStart} Kävele: ${fromLink} ➔ ${toLink}</div>`;
+              htmlBuffer += '<div class="leg walk">🚶 ' + legStart + ' Kävele: ' + fromLink + ' ➔ ' + toLink + '</div>';
             } else {
-              const busNo = (leg.route && leg.route.shortName) ? leg.route.shortName : '';
-              html += `<div class="leg"><span class="mode">🚌 Linja ${busNo}</span> (${legStart}): ${fromLink} ➔ ${toLink}</div>`;
+              var busNo = (leg.route && leg.route.shortName) ? leg.route.shortName : '';
+              htmlBuffer += '<div class="leg"><span class="mode">🚌 Linja ' + busNo + '</span> (' + legStart + '): ' + fromLink + ' ➔ ' + toLink + '</div>';
             }
-          });
+          }
 
-          html += `</div>`;
-          resultsDiv.innerHTML += html;
-        });
+          htmlBuffer += '</div>';
+        }
 
-        // Näytetään aiemmin/myöhemmin-napit tulosten tultua
-        timeNav.style.display = "flex";
-
-      } catch (err) {
-        console.error("Verkko- tai koodivirhe:", err);
-        statusDiv.innerText = "Virhe haettaessa tietoja: " + err.message;
-      }
+        resultsDiv.innerHTML = htmlBuffer;
+        timeNav.style.display = "block";
+      });
     }
   </script>
 </body>
