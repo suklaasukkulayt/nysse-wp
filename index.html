@@ -19,7 +19,7 @@
     .leg:last-child { border-bottom: none; }
     .mode { font-weight: bold; color: #00ff00; }
     .walk { color: #aaaaaa; }
-    a.gmap-link { color: #4da6ff; text-decoration: underline; font-size: 13px; margin-left: 4px; }
+    a.gmap-link { color: #4da6ff; text-decoration: underline; font-size: 13px; margin-left: 4px; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -49,6 +49,12 @@
     var muistissaFrom = null;
     var muistissaTo = null;
 
+    // Ohjaa Google Mapsiin suoraan MetroSurfin sisällä ilman IE-avausta
+    function goMap(lat, lon) {
+      var mapUrl = "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lon;
+      window.location.href = mapUrl;
+    }
+
     function uusiHaku() {
       nykyinenAika = new Date();
       muistissaFrom = null;
@@ -61,7 +67,6 @@
       prosessiHaku();
     }
 
-    // Perinteinen AJAX HTTP-pyyntö (yhteensopiva vanhojen selaimien kanssa)
     function makeRequest(url, method, headers, body, callback) {
       var xhr = new XMLHttpRequest();
       xhr.open(method, url, true);
@@ -142,7 +147,6 @@
       var resultsDiv = document.getElementById('results');
       var timeNav = document.getElementById('timeNav');
 
-      // Pvm ja aika muotoilu ilman ISO/toTimeString-metodeita
       var YYYY = nykyinenAika.getFullYear();
       var MM = ('0' + (nykyinenAika.getMonth() + 1)).slice(-2);
       var DD = ('0' + nykyinenAika.getDate()).slice(-2);
@@ -204,11 +208,9 @@
             var dLegStart = new Date(leg.startTime);
             var legStart = ('0' + dLegStart.getHours()).slice(-2) + ":" + ('0' + dLegStart.getMinutes()).slice(-2);
 
-            var fromMapUrl = "https://www.google.com/maps/search/?api=1&query=" + leg.from.lat + "," + leg.from.lon;
-            var toMapUrl = "https://www.google.com/maps/search/?api=1&query=" + leg.to.lat + "," + leg.to.lon;
-
-            var fromLink = leg.from.name + ' <a class="gmap-link" href="' + fromMapUrl + '" target="_blank">[Kartta]</a>';
-            var toLink = leg.to.name + ' <a class="gmap-link" href="' + toMapUrl + '" target="_blank">[Kartta]</a>';
+            // Generoidaan JS-funktiokutsut redirectiä varten
+            var fromLink = leg.from.name + ' <a class="gmap-link" onclick="goMap(' + leg.from.lat + ',' + leg.from.lon + ')">[Kartta]</a>';
+            var toLink = leg.to.name + ' <a class="gmap-link" onclick="goMap(' + leg.to.lat + ',' + leg.to.lon + ')">[Kartta]</a>';
 
             if (leg.mode === 'WALK') {
               htmlBuffer += '<div class="leg walk">🚶 ' + legStart + ' Kävele: ' + fromLink + ' ➔ ' + toLink + '</div>';
